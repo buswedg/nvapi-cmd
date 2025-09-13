@@ -1,0 +1,4 @@
+source/
+!source/nvapi-cmd/
+source/nvapi-cmd/*
+!source/nvapi-cmd/nvapi-cmd.cpp
