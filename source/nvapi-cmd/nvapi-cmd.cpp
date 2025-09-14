@@ -779,7 +779,7 @@ int NvApiSetCurve(unsigned int gpuBusId, unsigned int count, unsigned int* volta
 										if (voltageUV[j] == vfpCurve.clocks[i].voltageUV)
 										{
 											if (frequencyDeltaKHz)
-												clockTable.clocks[i].frequencyDeltaKHz = frequencyDeltaKHz[j] * 2;
+												clockTable.clocks[i].frequencyDeltaKHz = frequencyDeltaKHz[j];
 
 											break;
 										}
