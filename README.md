@@ -1,8 +1,8 @@
 # nvapi-cmd
 
-Pulled the repo from [nvapioc](https://github.com/Demion/nvapioc) and made some changes to the source code, which are included in this build. Including dropping the AMD ATI-related commands, and cleaning up some of the logging.
+Pulled the repo from [nvapioc](https://github.com/Demion/nvapioc) and made some changes to the source code, which are included in this build. Including dropping all AMD ATI-related commands and adding functionality to load (or save) voltage/frequency curves from a csv file.
 
-Plan to add some functions to pull current GPU state values, rather than needing to go to nvidia-smi.
+Going forward, I plan to do some work to the argparser logic and will also add functions to pull current GPU state values, rather than needing to go to nvidia-smi.
 
 ## Usage
 
@@ -22,7 +22,7 @@ nvapi-cmd.exe [options]
 | `-temp` | `gpuBusId priority tempC` | Set temperature target (priority: 0/1) |
 | `-fan` | `gpuBusId fanIndex speed` | Set fan speed (-1 = auto) |
 | `-led` | `gpuBusId type brightness` | Control LEDs (type: 0=logo, 1=SLI bridge) |
-| `-curve` | `gpuBusId count voltageUV frequencyKHz ...` | Define voltage curve (count: 0=reset, -1=save) |
+| `-curve` | `gpuBusId operation [filename.csv]` | Define voltage/frequency curve (operation: 0 = reset; -1 = save to csv; 1 = load from csv; filename required for -1 and 1) |
 | `-nvidia` | `enable` | Toggle NVIDIA mode (0=off, 1=on) |
 | `-log` | `enable` | Toggle logging (0=off, 1=on) |
 | `-restart` | | Restart GPU driver |
@@ -47,4 +47,37 @@ nvapi-cmd -core 1 0 300000
 
 ```bash
 nvapi-cmd -mem 1 0 3000000
+```
+
+- Reset voltage/frequency curve (to default values) for GPU ID 1:
+
+```bash
+nvapi-cmd -curve 1 0
+```
+
+- Save voltage/frequency curve for GPU ID 1 to 'curve.csv':
+
+```bash
+nvapi-cmd -curve 1 -1 curve.csv
+```
+
+- Load and set voltage/frequency curve for GPU ID 1 from 'curve.csv':
+
+```bash
+nvapi-cmd -curve 1 1 curve.csv
+```
+
+- Example voltage/frequency curve file (`curve.csv`):
+
+```csv
+voltageUV,frequencyKHz
+450000,210000
+460000,210000
+465000,210000
+470000,210000
+475000,210000
+485000,255000
+490000,300000
+495000,330000
+500000,375000
 ```

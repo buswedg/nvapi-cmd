@@ -239,7 +239,7 @@ int(__cdecl* NvAPI_GPU_SetIllumination)(NV_GPU_SET_ILLUMINATION_PARM* illuminati
 int(__cdecl* NvAPI_GPU_SetPstate)(void* gpuHandle, unsigned int pState, unsigned int setType) = 0;
 int(__cdecl* NvAPI_GPU_SetPstateClientLimits)(void* gpuHandle, unsigned int limitType, unsigned int pState) = 0;
 int(__cdecl* NvAPI_GPU_EnableDynamicPstates)(void* gpuHandle, unsigned int dynamicPStates) = 0;
-int(__cdecl* NvAPI_GPU_EnableOverclockedPstates)(void* gpuHandle, unsigned int overclockedPStates) = 0;
+int(__cdecl* NvAPI_GPU_EnableOverclockedPstates)(void* gpuHandle, unsigned int overclockedPstates) = 0;
 int(__cdecl* NvAPI_GPU_GetBusId)(void* gpuHandle, unsigned int* busId) = 0;
 int(__cdecl* NvAPI_GPU_GetClockBoostMask)(void* gpuHandle, NV_GPU_CLOCK_MASKS* clockMasks) = 0;
 int(__cdecl* NvAPI_GPU_GetVFPCurve)(void* gpuHandle, NV_GPU_VFP_CURVE* vfpCurve) = 0;
@@ -685,11 +685,11 @@ int NvApiEnableOverclockedPStates(unsigned int gpuBusId, bool enabled)
 	return result;
 }
 
-int NvApiGetCurve(unsigned int gpuBusId, unsigned int* count, unsigned int* voltageUV, int* frequencyDeltaKHz)
+int NvApiGetCurve(unsigned int gpuBusId, unsigned int* count, unsigned int* voltageUV, unsigned int* frequencyKHz)
 {
 	int result = -1;
 
-	if ((NvAPI_GPU_GetClockBoostMask) && (NvAPI_GPU_GetVFPCurve) && (NvAPI_GPU_GetClockBoostTable))
+	if ((NvAPI_GPU_GetClockBoostMask) && (NvAPI_GPU_GetVFPCurve))
 	{
 		NV_GPU_CLOCK_MASKS clockMasks = { 0 };
 
@@ -708,32 +708,22 @@ int NvApiGetCurve(unsigned int gpuBusId, unsigned int* count, unsigned int* volt
 
 			if (result == 0)
 			{
-				NV_GPU_CLOCK_TABLE clockTable = { 0 };
+				if (count)
+					*count = 0;
 
-				clockTable.version = MAKE_NVAPI_VERSION(clockTable, 1);
-				memcpy(clockTable.mask, clockMasks.mask, sizeof(clockTable.mask));
-
-				LOG(result = NvAPI_GPU_GetClockBoostTable(NvApiGpuHandles[gpuBusId], &clockTable));
-
-				if (result == 0)
+				for (unsigned int i = 0; i < 255; ++i)
 				{
-					if (count)
-						*count = 0;
-
-					for (unsigned int i = 0; i < 255; ++i)
+					if ((clockMasks.clocks[i].enabled == 1) && (vfpCurve.clocks[i].clockType == 0))
 					{
-						if ((clockMasks.clocks[i].enabled == 1) && (vfpCurve.clocks[i].clockType == 0))
+						if (count)
 						{
-							if (count)
-							{
-								if (voltageUV)
-									voltageUV[*count] = vfpCurve.clocks[i].voltageUV;
+							if (voltageUV)
+								voltageUV[*count] = vfpCurve.clocks[i].voltageUV;
 
-								if (frequencyDeltaKHz)
-									frequencyDeltaKHz[*count] = clockTable.clocks[i].frequencyDeltaKHz / 2;
+							if (frequencyKHz)
+								frequencyKHz[*count] = vfpCurve.clocks[i].frequencyKHz;
 
-								++(*count);
-							}
+							++(*count);
 						}
 					}
 				}
@@ -812,24 +802,155 @@ int NvApiSetCurve(unsigned int gpuBusId, unsigned int count, unsigned int* volta
 	return result;
 }
 
-void PrintUsage()
+int NvApiResetCurve(unsigned int gpuBusId)
 {
-	printf(
-		"\n"
-		"Usage:\n"
-		"-core gpuBusId pState frequencyKHz (frequencykHz: 0 = default; NVIDIA offset)\n"
-		"-mem gpuBusId pState frequencyKHz (frequencyKHz: 0 = default; NVIDIA offset)\n"
-		"-cvolt gpuBusId pState voltageUV (voltageUV: 0 = default)\n"
-		"-mvolt gpuBusId pState voltageUV (voltageUV: 0 = default)\n"
-		"-power gpuBusId power (power: NVIDIA offset)\n"
-		"-temp gpuBusId priority tempC (priority: 0 = false; 1 = true)\n"
-		"-fan gpuBusId fanIndex speed (speed: -1 = default)\n"
-		"-led gpuBusId type brightness (type: 0 = logo; 1 = sliBridge)\n"
-		"-curve gpuBusId count voltageUV frequencyKHz vUV2 fKHz2 vUV3 fKHz3\n"
-		"(count: 0 = reset; -1 = save; frequencyKHz: 0 = default; NVIDIA offset)\n"
-		"-nvidia enable (enable: 0 = false; 1 = true = default)\n"
-		"-log enable (enable: 0 = false; 1 = true = default)\n"
-		"-restart\n");
+	int result = -1;
+
+	if ((NvAPI_GPU_GetClockBoostMask) && (NvAPI_GPU_GetVFPCurve) && (NvAPI_GPU_GetClockBoostTable) && (NvAPI_GPU_SetClockBoostTable))
+	{
+		NV_GPU_CLOCK_MASKS clockMasks = { 0 };
+
+		clockMasks.version = MAKE_NVAPI_VERSION(clockMasks, 1);
+
+		LOG(result = NvAPI_GPU_GetClockBoostMask(NvApiGpuHandles[gpuBusId], &clockMasks));
+
+		if (result == 0)
+		{
+			NV_GPU_VFP_CURVE vfpCurve = { 0 };
+
+			vfpCurve.version = MAKE_NVAPI_VERSION(vfpCurve, 1);
+			memcpy(vfpCurve.mask, clockMasks.mask, sizeof(vfpCurve.mask));
+
+			LOG(result = NvAPI_GPU_GetVFPCurve(NvApiGpuHandles[gpuBusId], &vfpCurve));
+
+			if (result == 0)
+			{
+				NV_GPU_CLOCK_TABLE clockTable = { 0 };
+
+				clockTable.version = MAKE_NVAPI_VERSION(clockTable, 1);
+				memcpy(clockTable.mask, clockMasks.mask, sizeof(clockTable.mask));
+
+				LOG(result = NvAPI_GPU_GetClockBoostTable(NvApiGpuHandles[gpuBusId], &clockTable));
+
+				if (result == 0)
+				{
+					for (unsigned int i = 0; i < 255; ++i)
+					{
+						if ((clockMasks.clocks[i].enabled == 1) && (vfpCurve.clocks[i].clockType == 0))
+						{
+							clockTable.clocks[i].frequencyDeltaKHz = 0;
+						}
+					}
+
+					LOG(result = NvAPI_GPU_SetClockBoostTable(NvApiGpuHandles[gpuBusId], &clockTable));
+				}
+			}
+		}
+	}
+
+	return result;
+}
+
+static int LoadCurveFromCSV(unsigned int gpuBusId, const char* filename, unsigned int* count, unsigned int* voltageUV, unsigned int* frequencyKHz)
+{
+	int result = -1;
+	unsigned int load_count = 0;
+
+	FILE* fp = NULL;
+	LOG(fp = fopen(filename, "r"));
+	if (fp)
+	{
+		char line[512];
+		if (fgets(line, sizeof(line), fp)) // Skip header
+		{
+			while (fgets(line, sizeof(line), fp) && load_count < 255)
+			{
+				unsigned int vu, fk;
+				if (sscanf(line, "%u,%u", &vu, &fk) == 2)
+				{
+					if (voltageUV)
+						voltageUV[load_count] = vu;
+					if (frequencyKHz)
+						frequencyKHz[load_count] = fk;
+					++load_count;
+				}
+			}
+		}
+		LOG(fclose(fp));
+		if (count)
+			*count = load_count;
+		result = 0;
+	}
+	return result;
+}
+
+static int SaveCurveToCSV(unsigned int gpuBusId, const char* filename)
+{
+	int result = -1;
+	unsigned int save_count = 0;
+	unsigned int save_voltage[255] = { 0 };
+	unsigned int save_frequency[255] = { 0 };
+
+	result = NvApiGetCurve(gpuBusId, &save_count, save_voltage, save_frequency);
+	if (result == 0)
+	{
+		FILE* curve = NULL;
+		LOG(curve = fopen(filename, "w"));
+		if (curve)
+		{
+			fprintf(curve, "voltageUV,frequencyKHz\n");
+			for (unsigned int i = 0; i < save_count; ++i)
+			{
+				fprintf(curve, "%u,%u\n", save_voltage[i], save_frequency[i]);
+			}
+			LOG(fclose(curve));
+		}
+		else
+		{
+			result = -1;
+		}
+	}
+	return result;
+}
+
+static int SetCurveFromCSV(unsigned int gpuBusId, unsigned int load_count, unsigned int* load_voltage, unsigned int* load_frequency)
+{
+	int result = -1;
+
+	// Reset to default
+	result = NvApiResetCurve(gpuBusId);
+	if (result != 0)
+		return result;
+
+	// Get default curve
+	unsigned int def_count = 0;
+	unsigned int def_voltage[255] = { 0 };
+	unsigned int def_frequency[255] = { 0 };
+	result = NvApiGetCurve(gpuBusId, &def_count, def_voltage, def_frequency);
+	if (result != 0)
+		return result;
+
+	// Compute deltas
+	unsigned int set_count = 0;
+	unsigned int set_voltage[255] = { 0 };
+	int set_delta[255] = { 0 };
+	for (unsigned int j = 0; j < load_count; ++j) {
+		for (unsigned int k = 0; k < def_count; ++k) {
+			if (load_voltage[j] == def_voltage[k]) {
+				set_voltage[set_count] = load_voltage[j];
+				set_delta[set_count] = (int)load_frequency[j] - (int)def_frequency[k];
+				++set_count;
+				break;
+			}
+		}
+	}
+
+	// Set curve with deltas
+	if (set_count > 0) {
+		result = NvApiSetCurve(gpuBusId, set_count, set_voltage, set_delta);
+	}
+
+	return result;
 }
 
 void ParseInitArgs(int argc, char* argv[])
@@ -838,14 +959,14 @@ void ParseInitArgs(int argc, char* argv[])
 
 	while (arg < argc)
 	{
-		if (strcmp(strupr(argv[arg]), "-NVIDIA") == 0)
+		if (_stricmp(argv[arg], "-nvidia") == 0)
 		{
 			if (arg + 1 < argc)
 			{
 				NvApi = (atoi(argv[++arg]) != 0);
 			}
 		}
-		else if (strcmp(strupr(argv[arg]), "-LOG") == 0)
+		else if (_stricmp(argv[arg], "-log") == 0)
 		{
 			if (arg + 1 < argc)
 			{
@@ -863,21 +984,21 @@ void ParseArgs(int argc, char* argv[])
 
 	while (arg < argc)
 	{
-		if (strcmp(strupr(argv[arg]), "-NVIDIA") == 0)
+		if (_stricmp(argv[arg], "-nvidia") == 0)
 		{
 			if (arg + 1 < argc)
 			{
 				NvApi = (atoi(argv[++arg]) != 0);
 			}
 		}
-		else if (strcmp(strupr(argv[arg]), "-LOG") == 0)
+		else if (_stricmp(argv[arg], "-log") == 0)
 		{
 			if (arg + 1 < argc)
 			{
 				LogFileEnable = (atoi(argv[++arg]) != 0);
 			}
 		}
-		else if (strcmp(strupr(argv[arg]), "-CORE") == 0)
+		else if (_stricmp(argv[arg], "-core") == 0)
 		{
 			if (arg + 3 < argc)
 			{
@@ -889,7 +1010,7 @@ void ParseArgs(int argc, char* argv[])
 					NvApiSetCoreClockOffset(gpuBusId, pState, frequencyKHz);
 			}
 		}
-		else if (strcmp(strupr(argv[arg]), "-MEM") == 0)
+		else if (_stricmp(argv[arg], "-mem") == 0)
 		{
 			if (arg + 3 < argc)
 			{
@@ -901,7 +1022,7 @@ void ParseArgs(int argc, char* argv[])
 					NvApiSetMemoryClockOffset(gpuBusId, pState, frequencyKHz);
 			}
 		}
-		else if (strcmp(strupr(argv[arg]), "-CVOLT") == 0)
+		else if (_stricmp(argv[arg], "-cvolt") == 0)
 		{
 			if (arg + 3 < argc)
 			{
@@ -913,7 +1034,7 @@ void ParseArgs(int argc, char* argv[])
 					NvApiSetVoltageLock(gpuBusId, voltageUV);
 			}
 		}
-		else if (strcmp(strupr(argv[arg]), "-MVOLT") == 0)
+		else if (_stricmp(argv[arg], "-mvolt") == 0)
 		{
 			if (arg + 3 < argc)
 			{
@@ -925,7 +1046,7 @@ void ParseArgs(int argc, char* argv[])
 					NvApiSetVoltageLock(gpuBusId, voltageUV);
 			}
 		}
-		else if (strcmp(strupr(argv[arg]), "-POWER") == 0)
+		else if (_stricmp(argv[arg], "-power") == 0)
 		{
 			if (arg + 2 < argc)
 			{
@@ -936,7 +1057,7 @@ void ParseArgs(int argc, char* argv[])
 					NvApiSetPowerLimit(gpuBusId, power);
 			}
 		}
-		else if (strcmp(strupr(argv[arg]), "-TEMP") == 0)
+		else if (_stricmp(argv[arg], "-temp") == 0)
 		{
 			if (arg + 3 < argc)
 			{
@@ -948,7 +1069,7 @@ void ParseArgs(int argc, char* argv[])
 					NvApiSetTempLimit(gpuBusId, (priority != 0), tempC);
 			}
 		}
-		else if (strcmp(strupr(argv[arg]), "-FAN") == 0)
+		else if (_stricmp(argv[arg], "-fan") == 0)
 		{
 			if (arg + 3 < argc)
 			{
@@ -963,7 +1084,7 @@ void ParseArgs(int argc, char* argv[])
 				}
 			}
 		}
-		else if (strcmp(strupr(argv[arg]), "-LED") == 0)
+		else if (_stricmp(argv[arg], "-led") == 0)
 		{
 			if (arg + 3 < argc)
 			{
@@ -975,68 +1096,64 @@ void ParseArgs(int argc, char* argv[])
 					NvApiSetLedBrightness(gpuBusId, (LedType)type, brightness);
 			}
 		}
-		else if (strcmp(strupr(argv[arg]), "-CURVE") == 0)
-		{
-			if (arg + 2 < argc)
-			{
+		else if (_stricmp(argv[arg], "-curve") == 0) {
+			if (arg + 2 < argc) {
 				unsigned int gpuBusId = atoi(argv[++arg]);
-				int count = atoi(argv[++arg]);
+				int operation = atoi(argv[++arg]);
 
-				unsigned int voltageUV[255] = { 0 };
-				int frequencyDeltaKHz[255] = { 0 };
-
-				if ((count >= 0) && (count <= 255))
-				{
-					if (arg + count < argc)
-					{
-						for (int i = 0; i < count; ++i)
-						{
-							voltageUV[i] = atoi(argv[++arg]);
-							frequencyDeltaKHz[i] = atoi(argv[++arg]);
-						}
-
-						if (NvApiGpuHandles[gpuBusId] != 0)
-							NvApiSetCurve(gpuBusId, count, voltageUV, frequencyDeltaKHz);
+				if (NvApiGpuHandles[gpuBusId] != 0) {
+					if (operation == 0) {
+						NvApiResetCurve(gpuBusId);
 					}
-				}
-				else
-				{
-					if (NvApiGpuHandles[gpuBusId] != 0)
-					{
-						if (NvApiGetCurve(gpuBusId, (unsigned int*)&count, voltageUV, frequencyDeltaKHz) == 0)
-						{
-							FILE* curve = 0;
+					else if (arg + 1 < argc) {
+						const char* filename = argv[++arg];
 
-							LOG(curve = fopen("curve.bat", "a"));
+						if (operation == -1) {
+							SaveCurveToCSV(gpuBusId, filename);
+						}
+						else if (operation == 1) {
+							unsigned int load_count = 0;
+							unsigned int load_voltage[255] = { 0 };
+							unsigned int load_frequency[255] = { 0 };
 
-							if (curve)
-							{
-								fprintf(curve, "\"%s\" -curve %d %d", argv[0], gpuBusId, count);
-
-								for (int i = 0; i < count; ++i)
-									fprintf(curve, " %d %d", voltageUV[i], frequencyDeltaKHz[i]);
-
-								fprintf(curve, "\n");
-
-								LOG(fclose(curve));
+							if (LoadCurveFromCSV(gpuBusId, filename, &load_count, load_voltage, load_frequency) == 0 && load_count > 0) {
+								SetCurveFromCSV(gpuBusId, load_count, load_voltage, load_frequency);
 							}
 						}
 					}
 				}
 			}
 		}
-		else if (strcmp(strupr(argv[arg]), "-RESTART") == 0)
+		else if (_stricmp(argv[arg], "-restart") == 0)
 		{
 			NvApiRestartDriver();
 		}
 		else
 		{
-			printf("\n"
-				"Invalid parameter #%d \"%s\"\n", arg, argv[arg]);
+			printf("\nInvalid parameter #%d \"%s\"\n", arg, argv[arg]);
 		}
 
 		++arg;
 	}
+}
+
+void PrintUsage()
+{
+	printf(
+		"\n"
+		"Usage:\n"
+		"-core gpuBusId pState frequencyKHz (frequencykHz: 0 = default; NVIDIA offset)\n"
+		"-mem gpuBusId pState frequencyKHz (frequencyKHz: 0 = default; NVIDIA offset)\n"
+		"-cvolt gpuBusId pState voltageUV (voltageUV: 0 = default)\n"
+		"-mvolt gpuBusId pState voltageUV (voltageUV: 0 = default)\n"
+		"-power gpuBusId power (power: NVIDIA offset)\n"
+		"-temp gpuBusId priority tempC (priority: 0 = false; 1 = true)\n"
+		"-fan gpuBusId fanIndex speed (speed: -1 = default)\n"
+		"-led gpuBusId type brightness (type: 0 = logo; 1 = sliBridge)\n"
+		"-curve gpuBusId operation [filename.csv] (operation: 0 = reset; -1 = save to csv; 1 = load from csv; filename required for -1 and 1)\n"
+		"-nvidia enable (enable: 0 = false; 1 = true = default)\n"
+		"-log enable (enable: 0 = false; 1 = true = default)\n"
+		"-restart\n");
 }
 
 int main(int argc, char* argv[])
